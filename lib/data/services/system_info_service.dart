@@ -37,9 +37,9 @@ class SystemInfoService {
       // Get uptime
       final uptime = await _sshService.executeCommand('uptime') ?? 'Unknown';
 
-      // Get CPU info
+      // Get CPU info (checks lscpu, falls back to /proc/cpuinfo)
       final cpuInfo = await _sshService.executeCommand(
-        'lscpu | grep "Model name" | cut -d: -f2 | xargs'
+        'which lscpu >/dev/null 2>&1 && lscpu | grep "Model name" | cut -d: -f2 | xargs || grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | sed -e "s/^[[:space:]]*//"'
       ) ?? 'Unknown';
 
       // Get memory info
@@ -50,9 +50,10 @@ class SystemInfoService {
       final diskInfo = await _sshService.executeCommand(
         'df -h / | tail -1 | awk \'{print "Used: " \$3 " / Total: " \$2 " (" \$5 ")"}\'') ?? 'Unknown';
 
-      // Get OS info
+      // Get OS info (supports /etc/os-release or Synology /etc/VERSION)
       final osInfo = await _sshService.executeCommand(
-        'cat /etc/os-release | grep "PRETTY_NAME" | cut -d= -f2 | tr -d \'"\'') ?? 'Unknown';
+        '[ -f /etc/os-release ] && grep "PRETTY_NAME" /etc/os-release | cut -d= -f2 | tr -d \'"\' || ([ -f /etc/VERSION ] && echo "Synology DSM \$(grep productversion /etc/VERSION | cut -d\'"\' -f2)") || uname -s'
+      ) ?? 'Unknown';
 
       // Get kernel info
       final kernelInfo = await _sshService.executeCommand('uname -r') ?? 'Unknown';

@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
       listenable: ThemeManager(),
       builder: (context, child) {
         return MaterialApp(
-          title: 'Docker Manager',
+          title: 'BrokenDocker',
           localizationsDelegates: context.localizationDelegates,
           supportedLocales: context.supportedLocales,
           locale: context.locale,

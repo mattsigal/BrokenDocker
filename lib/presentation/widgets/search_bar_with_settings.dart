@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'search_bar.dart';
-import 'settings_icon_button.dart';
 
 class SearchBarWithSettings extends StatelessWidget {
   final String hintText;
   final ValueChanged<String> onSearchChanged;
+  final Widget? trailing;
 
   const SearchBarWithSettings({
     super.key,
     required this.hintText,
     required this.onSearchChanged,
+    this.trailing,
   });
 
   @override
@@ -24,7 +25,7 @@ class SearchBarWithSettings extends StatelessWidget {
               onSearchChanged: onSearchChanged,
             ),
           ),
-          const SettingsIconButton(),
+          if (trailing != null) trailing!,
         ],
       ),
     );

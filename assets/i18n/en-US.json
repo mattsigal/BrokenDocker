@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Docker Manager"
+    "title": "BrokenDocker"
   },
   "common": {
     "cancel": "Cancel",

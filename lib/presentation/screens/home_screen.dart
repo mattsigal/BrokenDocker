@@ -8,13 +8,9 @@ import '../widgets/system_info_dialog.dart';
 import '../widgets/speed_dial_fab.dart';
 import 'server_list_screen.dart';
 import 'shell_screen.dart';
-import 'file_system_screen.dart';
+import 'settings_screen.dart';
 import 'containers_screen.dart';
-import 'containers/create_container_screen.dart';
 import 'images_screen.dart';
-import 'images/pull_image_screen.dart';
-import 'images/build_image_screen.dart';
-import 'volumes_screen.dart';
 import 'networks_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -135,100 +131,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<Widget> get _pages => [
     const ContainersScreen(),
     const ImagesScreen(),
-    const VolumesScreen(),
     const NetworksScreen(),
   ];
-
-  Widget? _buildFloatingActionButton() {
-    switch (_currentIndex) {
-      case 0: // Containers tab
-        return FloatingActionButton(
-          onPressed: () async {
-            if (!_sshService.isConnected) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('connection.please_connect'.tr()),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-              return;
-            }
-            final result = await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const CreateContainerScreen(),
-              ),
-            );
-            // If container was created, the result will be true
-            if (result == true) {
-              // Trigger refresh on the containers screen if needed
-              setState(() {});
-            }
-          },
-          tooltip: 'common.create_container'.tr(),
-          child: const Icon(Icons.add),
-        );
-      case 1: // Images tab - Speed Dial FAB
-        return SpeedDialFAB(
-          mainIcon: Icons.add,
-          mainTooltip: 'common.image_actions'.tr(),
-          actions: [
-            SpeedDialAction(
-              icon: Icons.search,
-              label: 'home.pull_image'.tr(),
-              tooltip: 'common.pull_image_tooltip'.tr(),
-              onPressed: () async {
-                if (!_sshService.isConnected) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('connection.please_connect'.tr()),
-                        backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const PullImageScreen(),
-                  ),
-                );
-                if (result == true) {
-                  setState(() {}); // Refresh images list
-                }
-              },
-            ),
-            SpeedDialAction(
-              icon: Icons.build,
-              label: 'home.build_image'.tr(),
-              tooltip: 'common.build_image_tooltip'.tr(),
-              onPressed: () async {
-                if (!_sshService.isConnected) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('connection.please_connect'.tr()),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
-                  return;
-                }
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const BuildImageScreen(),
-                  ),
-                );
-                if (result == true) {
-                  setState(() {}); // Refresh images list
-                }
-              },
-            ),
-          ],
-        );
-      default:
-        return null;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -281,25 +185,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               }
             },
           ),
-          // Remote file system button
+          // Settings button
           IconButton(
-            icon: const Icon(Icons.folder),
-            tooltip: 'file_manager.title'.tr(),
+            icon: const Icon(Icons.settings),
+            tooltip: 'common.settings'.tr(),
             onPressed: () {
-              if (_sshService.isConnected) {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const FileSystemScreen(),
-                  ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('connection.please_connect'.tr()),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-              }
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
             },
           ),
           // Server selection button
@@ -324,7 +219,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
       body: _pages[_currentIndex],
-      floatingActionButton: _buildFloatingActionButton(),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -341,10 +235,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           BottomNavigationBarItem(
             icon: const Icon(Icons.layers_outlined),
             label: 'navigation.images'.tr(),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.dns_outlined),
-            label: 'navigation.volumes'.tr(),
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.account_tree_outlined),

@@ -23,8 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isPruning = false;
   String _appVersion = '';
   String _buildNumber = '';
-  final Uri _githubUri = Uri.parse('https://github.com/theSoberSobber/Docker-Manager');
-  final Uri _playStoreUri = Uri.parse('https://play.google.com/store/apps/details?id=com.pavit.docker');
+  final Uri _githubUri = Uri.parse('https://github.com/mattsigal/BrokenDocker');
   final DockerCliPathService _dockerCliPathService = DockerCliPathService();
 
   @override
@@ -516,7 +515,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Docker Manager',
+                          'BrokenDocker',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 4),
@@ -534,18 +533,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: const FaIcon(FontAwesomeIcons.github),
                     tooltip: 'settings.github_repo'.tr(),
                     onPressed: () => _openExternalLink(_githubUri),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    icon: const Icon(Icons.play_circle),
-                    label: Text('settings.rate_play'.tr()),
-                    onPressed: () => _openExternalLink(_playStoreUri),
                   ),
                 ],
               ),

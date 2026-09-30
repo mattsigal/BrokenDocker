@@ -13,6 +13,9 @@ import 'settings_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:easy_localization/easy_localization.dart';
 
+enum ContainerSortField { name, uptime }
+enum ContainerSortOrder { ascending, descending }
+
 class ContainersScreen extends StatefulWidget {
   const ContainersScreen({super.key});
 
@@ -34,6 +37,9 @@ class _ContainersScreenState extends State<ContainersScreen>
   String? _lastLoadedServerId; // Track which server we loaded data for
   String _searchQuery = '';
   String? _selectedStack; // null means "All", "no-stack" means containers without stack
+  ContainerSortField _sortField = ContainerSortField.name;
+  ContainerSortOrder _sortOrder = ContainerSortOrder.ascending;
+  Set<String> _favoriteNames = {};
 
   @override
   bool get wantKeepAlive => true;
@@ -49,6 +55,7 @@ class _ContainersScreenState extends State<ContainersScreen>
       _hasTriedLoading = true;
       _error = 'connection.please_connect';
     }
+    _loadPreferences();
     // Start a periodic check to detect server changes
     _startServerChangeDetection();
   }
@@ -234,6 +241,83 @@ class _ContainersScreenState extends State<ContainersScreen>
     return stacks;
   }
 
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final fieldStr = prefs.getString('containerSortField');
+    final orderStr = prefs.getString('containerSortOrder');
+    final favList = prefs.getStringList('favoriteContainers') ?? [];
+    if (mounted) {
+      setState(() {
+        _favoriteNames = favList.toSet();
+        if (fieldStr != null || orderStr != null) {
+          _sortField = fieldStr == 'uptime' ? ContainerSortField.uptime : ContainerSortField.name;
+          _sortOrder = orderStr == 'descending' ? ContainerSortOrder.descending : ContainerSortOrder.ascending;
+        }
+        _filteredContainers = _filterContainers(_containers, _searchQuery);
+      });
+    }
+  }
+
+  Future<void> _toggleFavorite(String name) async {
+    setState(() {
+      if (_favoriteNames.contains(name)) {
+        _favoriteNames.remove(name);
+      } else {
+        _favoriteNames.add(name);
+      }
+      _filteredContainers = _filterContainers(_containers, _searchQuery);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('favoriteContainers', _favoriteNames.toList());
+  }
+
+  int _parseUptime(String status) {
+    if (!status.startsWith('Up')) return -1;
+    final lower = status.toLowerCase();
+    final match = RegExp(r'up\s+(?:about\s+)?(\d+)\s+(\w+)').firstMatch(lower);
+    if (match != null) {
+      final count = int.tryParse(match.group(1) ?? '') ?? 0;
+      final unit = match.group(2) ?? '';
+      if (unit.startsWith('sec')) return count;
+      if (unit.startsWith('min')) return count * 60;
+      if (unit.startsWith('hour')) return count * 3600;
+      if (unit.startsWith('day')) return count * 86400;
+      if (unit.startsWith('week')) return count * 604800;
+      if (unit.startsWith('month')) return count * 2592000;
+      if (unit.startsWith('year')) return count * 31536000;
+    }
+    return 0;
+  }
+
+  List<DockerContainer> _sortContainers(List<DockerContainer> list) {
+    final sorted = List<DockerContainer>.from(list);
+    sorted.sort((a, b) {
+      final aFav = _favoriteNames.contains(a.names);
+      final bFav = _favoriteNames.contains(b.names);
+
+      // Pinned favorites always stay at the top:
+      if (aFav && !bFav) return -1;
+      if (!aFav && bFav) return 1;
+
+      int cmp = 0;
+      switch (_sortField) {
+        case ContainerSortField.name:
+          cmp = a.names.toLowerCase().compareTo(b.names.toLowerCase());
+          break;
+        case ContainerSortField.uptime:
+          final uptimeA = _parseUptime(a.status);
+          final uptimeB = _parseUptime(b.status);
+          cmp = uptimeA.compareTo(uptimeB);
+          if (cmp == 0) {
+            cmp = a.names.toLowerCase().compareTo(b.names.toLowerCase());
+          }
+          break;
+      }
+      return _sortOrder == ContainerSortOrder.ascending ? cmp : -cmp;
+    });
+    return sorted;
+  }
+
   /// Filter containers by search query and selected stack
   List<DockerContainer> _filterContainers(List<DockerContainer> containers, String query) {
     var filtered = containers;
@@ -248,16 +332,138 @@ class _ContainersScreenState extends State<ContainersScreen>
     }
 
     // Then filter by search query
-    if (query.isEmpty) return filtered;
-    
-    final lowercaseQuery = query.toLowerCase();
-    return filtered.where((container) {
-      return container.names.toLowerCase().contains(lowercaseQuery) ||
-             container.image.toLowerCase().contains(lowercaseQuery) ||
-             container.status.toLowerCase().contains(lowercaseQuery) ||
-             container.id.toLowerCase().contains(lowercaseQuery) ||
-             (container.composeProject?.toLowerCase().contains(lowercaseQuery) ?? false);
-    }).toList();
+    if (query.isNotEmpty) {
+      final lowercaseQuery = query.toLowerCase();
+      filtered = filtered.where((container) {
+        return container.names.toLowerCase().contains(lowercaseQuery) ||
+               container.image.toLowerCase().contains(lowercaseQuery) ||
+               container.status.toLowerCase().contains(lowercaseQuery) ||
+               container.id.toLowerCase().contains(lowercaseQuery) ||
+               (container.composeProject?.toLowerCase().contains(lowercaseQuery) ?? false);
+      }).toList();
+    }
+
+    return _sortContainers(filtered);
+  }
+
+  Widget _buildSortButton() {
+    return Container(
+      margin: const EdgeInsets.only(right: 16),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: PopupMenuButton<String>(
+        icon: Icon(
+          Icons.sort,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        tooltip: 'Sort containers',
+        padding: const EdgeInsets.all(8),
+        constraints: const BoxConstraints(
+          minWidth: 40,
+          minHeight: 40,
+        ),
+        onSelected: (value) async {
+          setState(() {
+            switch (value) {
+              case 'name':
+                _sortField = ContainerSortField.name;
+                break;
+              case 'uptime':
+                _sortField = ContainerSortField.uptime;
+                break;
+              case 'asc':
+                _sortOrder = ContainerSortOrder.ascending;
+                break;
+              case 'desc':
+                _sortOrder = ContainerSortOrder.descending;
+                break;
+            }
+            _filteredContainers = _filterContainers(_containers, _searchQuery);
+          });
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(
+            'containerSortField',
+            _sortField == ContainerSortField.uptime ? 'uptime' : 'name',
+          );
+          await prefs.setString(
+            'containerSortOrder',
+            _sortOrder == ContainerSortOrder.descending ? 'descending' : 'ascending',
+          );
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Sort by', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'name',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == ContainerSortField.name ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Name'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'uptime',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == ContainerSortField.uptime ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Uptime'),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'asc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == ContainerSortOrder.ascending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(_sortField == ContainerSortField.name ? 'A → Z (Ascending)' : 'Shortest uptime first'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'desc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == ContainerSortOrder.descending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(_sortField == ContainerSortField.name ? 'Z → A (Descending)' : 'Longest uptime first'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onSearchChanged(String query) {
@@ -696,6 +902,7 @@ class _ContainersScreenState extends State<ContainersScreen>
           SearchBarWithSettings(
             hintText: 'common.search_containers_hint'.tr(),
             onSearchChanged: _onSearchChanged,
+            trailing: _buildSortButton(),
           ),
           Expanded(
             child: Center(
@@ -733,6 +940,7 @@ class _ContainersScreenState extends State<ContainersScreen>
         SearchBarWithSettings(
           hintText: 'common.search_containers_hint'.tr(),
           onSearchChanged: _onSearchChanged,
+          trailing: _buildSortButton(),
         ),
         _buildStackFilterChips(),
         Expanded(
@@ -830,6 +1038,19 @@ class _ContainersScreenState extends State<ContainersScreen>
                 Expanded(
                   child: Row(
                     children: [
+                      IconButton(
+                        icon: Icon(
+                          _favoriteNames.contains(container.names) ? Icons.star : Icons.star_border,
+                          color: _favoriteNames.contains(container.names) ? Colors.amber : Colors.grey[400],
+                          size: 22,
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        tooltip: _favoriteNames.contains(container.names) ? 'Unfavorite' : 'Favorite & Pin to top',
+                        onPressed: () => _toggleFavorite(container.names),
+                      ),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -932,6 +1153,7 @@ class _ContainersScreenState extends State<ContainersScreen>
                     ? Row(
                         children: [
                           Expanded(
+                            flex: 2,
                             child: _buildStatColumn(
                               icon: Icons.speed,
                               label: 'containers.stats.cpu'.tr(),
@@ -939,6 +1161,7 @@ class _ContainersScreenState extends State<ContainersScreen>
                             ),
                           ),
                           Expanded(
+                            flex: 2,
                             child: _buildStatColumn(
                               icon: Icons.memory,
                               label: 'containers.stats.memory'.tr(),
@@ -946,17 +1169,11 @@ class _ContainersScreenState extends State<ContainersScreen>
                             ),
                           ),
                           Expanded(
+                            flex: 3,
                             child: _buildStatColumn(
                               icon: Icons.cloud_queue,
                               label: 'containers.stats.network'.tr(),
                               value: container.netIO ?? 'N/A',
-                            ),
-                          ),
-                          Expanded(
-                            child: _buildStatColumn(
-                              icon: Icons.format_list_numbered,
-                              label: 'containers.stats.pids'.tr(),
-                              value: container.pids ?? 'N/A',
                             ),
                           ),
                         ],
@@ -1048,7 +1265,8 @@ class _ContainersScreenState extends State<ContainersScreen>
             fontWeight: FontWeight.w600,
           ),
           textAlign: TextAlign.center,
-          maxLines: 2,
+          maxLines: 1,
+          softWrap: false,
           overflow: TextOverflow.ellipsis,
         ),
       ],
