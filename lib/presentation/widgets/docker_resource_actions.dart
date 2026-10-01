@@ -23,19 +23,24 @@ class DockerResourceActions extends StatelessWidget {
   final List<DockerAction> actions;
   final Function(DockerAction) onActionSelected;
   final String resourceName;
+  final Widget? child;
+  final EdgeInsetsGeometry padding;
 
   const DockerResourceActions({
     super.key,
     required this.actions,
     required this.onActionSelected,
     required this.resourceName,
+    this.child,
+    this.padding = const EdgeInsets.all(8.0),
   });
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<DockerAction>(
-      icon: const Icon(Icons.more_vert),
-      tooltip: 'common.actions_for'.tr(args: [resourceName]),
+    final popupMenu = PopupMenuButton<DockerAction>(
+      icon: child == null ? const Icon(Icons.more_vert) : null,
+      tooltip: child == null ? 'common.actions_for'.tr(args: [resourceName]) : null,
+      padding: padding,
       onSelected: (action) {
         if (action.isDestructive) {
           _showConfirmationDialog(context, action);
@@ -66,7 +71,17 @@ class DockerResourceActions extends StatelessWidget {
           );
         }).toList();
       },
+      child: child,
     );
+
+    if (child != null) {
+      return Tooltip(
+        message: 'common.actions_for'.tr(args: [resourceName]),
+        child: popupMenu,
+      );
+    }
+
+    return popupMenu;
   }
 
   void _showConfirmationDialog(BuildContext context, DockerAction action) {

@@ -1023,7 +1023,8 @@ class _ContainersScreenState extends State<ContainersScreen>
   Widget _buildContainerCard(DockerContainer container) {
     final isRunning = container.status.toLowerCase().startsWith('up');
     final statusColor = isRunning ? Colors.green : Colors.orange;
-    
+    const double headerActionHeight = 28.0;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
@@ -1032,118 +1033,132 @@ class _ContainersScreenState extends State<ContainersScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with name, status, and actions
+            // Header: Star icon, container name, status tag, and 3-dots menu on same line
             Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                SizedBox(
+                  width: headerActionHeight,
+                  height: headerActionHeight,
+                  child: IconButton(
+                    icon: Icon(
+                      _favoriteNames.contains(container.names) ? Icons.star : Icons.star_border,
+                      color: _favoriteNames.contains(container.names) ? Colors.amber : Colors.grey[400],
+                      size: 22,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: headerActionHeight,
+                      height: headerActionHeight,
+                    ),
+                    tooltip: _favoriteNames.contains(container.names) ? 'Unfavorite' : 'Favorite & Pin to top',
+                    onPressed: () => _toggleFavorite(container.names),
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Expanded(
+                  child: Text(
+                    container.names,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  height: headerActionHeight,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(headerActionHeight / 2),
+                    border: Border.all(color: statusColor.withOpacity(0.3)),
+                  ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          _favoriteNames.contains(container.names) ? Icons.star : Icons.star_border,
-                          color: _favoriteNames.contains(container.names) ? Colors.amber : Colors.grey[400],
-                          size: 22,
-                        ),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                        tooltip: _favoriteNames.contains(container.names) ? 'Unfavorite' : 'Favorite & Pin to top',
-                        onPressed: () => _toggleFavorite(container.names),
+                      Icon(
+                        isRunning ? Icons.play_circle : Icons.pause_circle,
+                        size: 16,
+                        color: statusColor,
                       ),
                       const SizedBox(width: 4),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              container.names,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (container.isPartOfStack) ...[
-                              const SizedBox(height: 4),
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.layers,
-                                    size: 14,
-                                    color: Colors.blue[700],
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      '${container.composeProject}${container.composeService != null ? ' / ${container.composeService}' : ''}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.blue[700],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: statusColor.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              isRunning ? Icons.play_circle : Icons.pause_circle,
-                              size: 16,
-                              color: statusColor,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              isRunning ? 'common.running'.tr() : 'common.stopped'.tr(),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.w500,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        isRunning ? 'common.running'.tr() : 'common.stopped'.tr(),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                          height: 1.1,
                         ),
                       ),
                     ],
                   ),
                 ),
-                // Action menu
+                const SizedBox(width: 4),
                 DockerResourceActions(
                   actions: ContainerActions.getActions(isRunning),
                   onActionSelected: (action) => _handleContainerAction(action, container),
                   resourceName: container.names,
+                  padding: EdgeInsets.zero,
+                  child: SizedBox(
+                    width: headerActionHeight,
+                    height: headerActionHeight,
+                    child: Center(
+                      child: Icon(
+                        Icons.more_vert,
+                        size: 20,
+                        color: Theme.of(context).iconTheme.color,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
+            // Second line: Compose/Stack info stretching across full width
+            if (container.isPartOfStack) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Icons.layers,
+                    size: 14,
+                    color: Colors.blue[700],
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${container.composeProject}${container.composeService != null ? ' / ${container.composeService}' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.blue[700],
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 12),
             
-            // Container details
-            _buildDetailRow('common.id'.tr(), container.id.length > 12 
-                ? '${container.id.substring(0, 12)}...' 
-                : container.id),
+            // Container details (ID and Command removed per request)
             _buildDetailRow('common.image'.tr(), container.image),
-            _buildDetailRow('common.command'.tr(), container.command),
             _buildDetailRow('common.created'.tr(), container.created),
             _buildDetailRow('common.status'.tr(), container.status),
             if (container.ports.isNotEmpty)
-              _buildDetailRow('common.ports'.tr(), container.ports.join(', ')),
+              _buildPortsRow('common.ports'.tr(), container.ports),
             
             // Container stats (show for running containers)
             if (isRunning) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.blue.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(8),
@@ -1151,30 +1166,22 @@ class _ContainersScreenState extends State<ContainersScreen>
                 ),
                 child: container.hasStats
                     ? Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          Expanded(
-                            flex: 2,
-                            child: _buildStatColumn(
-                              icon: Icons.speed,
-                              label: 'containers.stats.cpu'.tr(),
-                              value: container.cpuPerc ?? 'N/A',
-                            ),
+                          _buildStatItem(
+                            icon: Icons.speed,
+                            label: 'containers.stats.cpu'.tr(),
+                            value: container.cpuPerc ?? 'N/A',
                           ),
-                          Expanded(
-                            flex: 2,
-                            child: _buildStatColumn(
-                              icon: Icons.memory,
-                              label: 'containers.stats.memory'.tr(),
-                              value: container.memPerc ?? 'N/A',
-                            ),
+                          _buildStatItem(
+                            icon: Icons.memory,
+                            label: 'containers.stats.memory'.tr(),
+                            value: container.memPerc ?? 'N/A',
                           ),
-                          Expanded(
-                            flex: 3,
-                            child: _buildStatColumn(
-                              icon: Icons.cloud_queue,
-                              label: 'containers.stats.network'.tr(),
-                              value: container.netIO ?? 'N/A',
-                            ),
+                          _buildStatItem(
+                            icon: Icons.cloud_queue,
+                            label: 'containers.stats.network'.tr(),
+                            value: container.netIO ?? 'N/A',
                           ),
                         ],
                       )
@@ -1236,38 +1243,95 @@ class _ContainersScreenState extends State<ContainersScreen>
     );
   }
 
-  Widget _buildStatColumn({
+  Widget _buildPortsRow(String label, List<String> rawPorts) {
+    final portsList = rawPorts
+        .expand((p) => p.split(','))
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (portsList.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label:',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[600],
+              ),
+            ),
+          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final singleLine = portsList.join(', ');
+                final textStyle = Theme.of(context).textTheme.bodySmall;
+                final textPainter = TextPainter(
+                  text: TextSpan(text: singleLine, style: textStyle),
+                  maxLines: 1,
+                  textDirection: Directionality.of(context),
+                )..layout(maxWidth: constraints.maxWidth);
+
+                final displayText = textPainter.didExceedMaxLines
+                    ? portsList.join(',\n')
+                    : singleLine;
+
+                return Text(
+                  displayText,
+                  style: textStyle,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem({
     required IconData icon,
     required String label,
     required String value,
   }) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
           icon,
-          size: 16,
+          size: 18,
           color: Colors.blue[700],
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          softWrap: false,
-          overflow: TextOverflow.ellipsis,
+        const SizedBox(width: 4),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 1),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              softWrap: false,
+            ),
+          ],
         ),
       ],
     );

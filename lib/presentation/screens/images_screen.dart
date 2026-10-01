@@ -9,6 +9,10 @@ import '../widgets/docker_resource_actions.dart';
 import '../widgets/search_bar_with_settings.dart';
 import 'log_viewer_screen.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+enum ImageSortField { name, date, size }
+enum ImageSortOrder { ascending, descending }
 
 class ImagesScreen extends StatefulWidget {
   const ImagesScreen({super.key});
@@ -29,6 +33,8 @@ class _ImagesScreenState extends State<ImagesScreen>
   bool _hasTriedLoading = false;
   Server? _lastKnownServer;
   String _searchQuery = '';
+  ImageSortField _sortField = ImageSortField.name;
+  ImageSortOrder _sortOrder = ImageSortOrder.ascending;
 
   @override
   bool get wantKeepAlive => true;
@@ -37,6 +43,7 @@ class _ImagesScreenState extends State<ImagesScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadPreferences();
     _startServerChangeDetection();
   }
 
@@ -109,16 +116,123 @@ class _ImagesScreenState extends State<ImagesScreen>
     }
   }
 
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final fieldStr = prefs.getString('imageSortField');
+    final orderStr = prefs.getString('imageSortOrder');
+    if (mounted) {
+      setState(() {
+        if (fieldStr != null) {
+          switch (fieldStr) {
+            case 'date':
+              _sortField = ImageSortField.date;
+              break;
+            case 'size':
+              _sortField = ImageSortField.size;
+              break;
+            case 'name':
+            default:
+              _sortField = ImageSortField.name;
+              break;
+          }
+        }
+        if (orderStr != null) {
+          _sortOrder = orderStr == 'descending' ? ImageSortOrder.descending : ImageSortOrder.ascending;
+        }
+        _filteredImages = _filterImages(_images, _searchQuery);
+      });
+    }
+  }
+
+  int _parseCreated(String created) {
+    final lower = created.toLowerCase().trim();
+    final match = RegExp(r'(?:about\s+)?(\d+)\s+(\w+)').firstMatch(lower);
+    if (match != null) {
+      final count = int.tryParse(match.group(1) ?? '') ?? 1;
+      final unit = match.group(2) ?? '';
+      if (unit.startsWith('sec')) return count;
+      if (unit.startsWith('min')) return count * 60;
+      if (unit.startsWith('hour')) return count * 3600;
+      if (unit.startsWith('day')) return count * 86400;
+      if (unit.startsWith('week')) return count * 604800;
+      if (unit.startsWith('month')) return count * 2592000;
+      if (unit.startsWith('year')) return count * 31536000;
+    }
+    if (lower.contains('minute')) return 60;
+    if (lower.contains('hour')) return 3600;
+    if (lower.contains('day')) return 86400;
+    if (lower.contains('week')) return 604800;
+    if (lower.contains('month')) return 2592000;
+    if (lower.contains('year')) return 31536000;
+
+    try {
+      final dt = DateTime.tryParse(created);
+      if (dt != null) {
+        return DateTime.now().difference(dt).inSeconds;
+      }
+    } catch (_) {}
+
+    return 0;
+  }
+
+  double _parseSize(String sizeStr) {
+    final clean = sizeStr.replaceAll(RegExp(r'[,\s]'), '').toUpperCase();
+    final match = RegExp(r'^([0-9.]+)([A-Z]+)?').firstMatch(clean);
+    if (match == null) return 0.0;
+    final val = double.tryParse(match.group(1) ?? '') ?? 0.0;
+    final unit = match.group(2) ?? '';
+    if (unit.startsWith('T')) return val * 1024 * 1024 * 1024 * 1024;
+    if (unit.startsWith('G')) return val * 1024 * 1024 * 1024;
+    if (unit.startsWith('M')) return val * 1024 * 1024;
+    if (unit.startsWith('K')) return val * 1024;
+    return val;
+  }
+
+  List<DockerImage> _sortImages(List<DockerImage> list) {
+    final sorted = List<DockerImage>.from(list);
+    sorted.sort((a, b) {
+      int cmp = 0;
+      switch (_sortField) {
+        case ImageSortField.name:
+          cmp = a.repository.toLowerCase().compareTo(b.repository.toLowerCase());
+          if (cmp == 0) {
+            cmp = a.tag.toLowerCase().compareTo(b.tag.toLowerCase());
+          }
+          break;
+        case ImageSortField.date:
+          final aAge = _parseCreated(a.created);
+          final bAge = _parseCreated(b.created);
+          cmp = aAge.compareTo(bAge);
+          if (cmp == 0) {
+            cmp = a.repository.toLowerCase().compareTo(b.repository.toLowerCase());
+          }
+          break;
+        case ImageSortField.size:
+          final aSize = _parseSize(a.size);
+          final bSize = _parseSize(b.size);
+          cmp = aSize.compareTo(bSize);
+          if (cmp == 0) {
+            cmp = a.repository.toLowerCase().compareTo(b.repository.toLowerCase());
+          }
+          break;
+      }
+      return _sortOrder == ImageSortOrder.ascending ? cmp : -cmp;
+    });
+    return sorted;
+  }
+
   List<DockerImage> _filterImages(List<DockerImage> images, String query) {
-    if (query.isEmpty) return images;
-    
-    final lowercaseQuery = query.toLowerCase();
-    return images.where((image) {
-      return image.repository.toLowerCase().contains(lowercaseQuery) ||
-             image.tag.toLowerCase().contains(lowercaseQuery) ||
-             image.imageId.toLowerCase().contains(lowercaseQuery) ||
-             image.size.toLowerCase().contains(lowercaseQuery);
-    }).toList();
+    var filtered = images;
+    if (query.isNotEmpty) {
+      final lowercaseQuery = query.toLowerCase();
+      filtered = images.where((image) {
+        return image.repository.toLowerCase().contains(lowercaseQuery) ||
+               image.tag.toLowerCase().contains(lowercaseQuery) ||
+               image.imageId.toLowerCase().contains(lowercaseQuery) ||
+               image.size.toLowerCase().contains(lowercaseQuery);
+      }).toList();
+    }
+    return _sortImages(filtered);
   }
 
   void _onSearchChanged(String query) {
@@ -128,10 +242,157 @@ class _ImagesScreenState extends State<ImagesScreen>
     });
   }
 
+  Widget _buildSortButton() {
+    return Container(
+      margin: const EdgeInsets.only(right: 16),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: PopupMenuButton<String>(
+        icon: Icon(
+          Icons.sort,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        tooltip: 'Sort images',
+        padding: const EdgeInsets.all(8),
+        constraints: const BoxConstraints(
+          minWidth: 40,
+          minHeight: 40,
+        ),
+        onSelected: (value) async {
+          final prefs = await SharedPreferences.getInstance();
+          setState(() {
+            switch (value) {
+              case 'name':
+                _sortField = ImageSortField.name;
+                break;
+              case 'date':
+                _sortField = ImageSortField.date;
+                break;
+              case 'size':
+                _sortField = ImageSortField.size;
+                break;
+              case 'asc':
+                _sortOrder = ImageSortOrder.ascending;
+                break;
+              case 'desc':
+                _sortOrder = ImageSortOrder.descending;
+                break;
+            }
+            _filteredImages = _filterImages(_images, _searchQuery);
+          });
+          await prefs.setString(
+            'imageSortField',
+            _sortField == ImageSortField.date ? 'date' : (_sortField == ImageSortField.size ? 'size' : 'name'),
+          );
+          await prefs.setString(
+            'imageSortOrder',
+            _sortOrder == ImageSortOrder.descending ? 'descending' : 'ascending',
+          );
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Sort by', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'name',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == ImageSortField.name ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Name'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'date',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == ImageSortField.date ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Date updated'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'size',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == ImageSortField.size ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Size'),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'asc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == ImageSortOrder.ascending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _sortField == ImageSortField.name
+                      ? 'A → Z (Ascending)'
+                      : (_sortField == ImageSortField.date ? 'Newest first (A → Z)' : 'Smallest first (A → Z)'),
+                ),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'desc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == ImageSortOrder.descending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _sortField == ImageSortField.name
+                      ? 'Z → A (Descending)'
+                      : (_sortField == ImageSortField.date ? 'Oldest first (Z → A)' : 'Largest first (Z → A)'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleImageAction(DockerAction action, DockerImage image) async {
     try {
       String command;
       final dockerCli = await _dockerCliPathService.getDockerCliPath();
+      
+      if (!mounted) return;
       
       switch (action.command) {
         case 'docker image inspect':
@@ -314,6 +575,7 @@ class _ImagesScreenState extends State<ImagesScreen>
           SearchBarWithSettings(
             hintText: 'common.search_images_hint'.tr(),
             onSearchChanged: _onSearchChanged,
+            trailing: _buildSortButton(),
           ),
           Expanded(
             child: Center(
@@ -351,6 +613,7 @@ class _ImagesScreenState extends State<ImagesScreen>
         SearchBarWithSettings(
           hintText: 'common.search_images_hint'.tr(),
           onSearchChanged: _onSearchChanged,
+          trailing: _buildSortButton(),
         ),
         Expanded(
           child: ListView.builder(
@@ -367,9 +630,6 @@ class _ImagesScreenState extends State<ImagesScreen>
   }
 
   Widget _buildImageCard(DockerImage image) {
-    final isBaseImage = ['alpine', 'ubuntu', 'debian', 'centos', 'fedora', 'postgres', 'redis', 'mysql', 'nginx', 'node', 'python', 'java'].any(
-      (base) => image.repository.toLowerCase().contains(base)
-    );
     final hasTag = image.tag != '<none>';
     
     return Card(
@@ -385,9 +645,9 @@ class _ImagesScreenState extends State<ImagesScreen>
                 Expanded(
                   child: Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.layers,
-                        color: isBaseImage ? Colors.blue : Colors.green,
+                        color: Colors.green,
                         size: 20,
                       ),
                       const SizedBox(width: 8),
@@ -436,20 +696,7 @@ class _ImagesScreenState extends State<ImagesScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  'ID: ${image.imageId.substring(0, 12)}',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                    fontFamily: 'monospace',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Container(
@@ -462,7 +709,7 @@ class _ImagesScreenState extends State<ImagesScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.storage,
                         size: 12,
                         color: Colors.green,
@@ -470,7 +717,7 @@ class _ImagesScreenState extends State<ImagesScreen>
                       const SizedBox(width: 4),
                       Text(
                         image.size,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.green,
                           fontWeight: FontWeight.w500,
                           fontSize: 12,
@@ -490,7 +737,7 @@ class _ImagesScreenState extends State<ImagesScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.schedule,
                         size: 12,
                         color: Colors.blue,
@@ -498,7 +745,7 @@ class _ImagesScreenState extends State<ImagesScreen>
                       const SizedBox(width: 4),
                       Text(
                         image.created,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.blue,
                           fontWeight: FontWeight.w500,
                           fontSize: 12,
@@ -507,36 +754,6 @@ class _ImagesScreenState extends State<ImagesScreen>
                     ],
                   ),
                 ),
-                if (isBaseImage) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.purple.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.purple.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.verified,
-                          size: 12,
-                          color: Colors.purple,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          'Official',
-                          style: TextStyle(
-                            color: Colors.purple,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
           ],
@@ -545,3 +762,4 @@ class _ImagesScreenState extends State<ImagesScreen>
     );
   }
 }
+

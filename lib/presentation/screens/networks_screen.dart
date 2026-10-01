@@ -9,6 +9,10 @@ import '../widgets/docker_resource_actions.dart';
 import '../widgets/search_bar_with_settings.dart';
 import 'log_viewer_screen.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+enum NetworkSortField { name }
+enum NetworkSortOrder { ascending, descending }
 
 class NetworksScreen extends StatefulWidget {
   const NetworksScreen({super.key});
@@ -29,6 +33,9 @@ class _NetworksScreenState extends State<NetworksScreen>
   bool _hasTriedLoading = false;
   Server? _lastKnownServer;
   String _searchQuery = '';
+  NetworkSortField _sortField = NetworkSortField.name;
+  NetworkSortOrder _sortOrder = NetworkSortOrder.ascending;
+  bool _groupBySystem = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -37,6 +44,7 @@ class _NetworksScreenState extends State<NetworksScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadPreferences();
     _startServerChangeDetection();
   }
 
@@ -109,15 +117,48 @@ class _NetworksScreenState extends State<NetworksScreen>
     }
   }
 
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final orderStr = prefs.getString('networkSortOrder');
+    final groupSys = prefs.getBool('networkGroupBySystem') ?? false;
+    if (mounted) {
+      setState(() {
+        _groupBySystem = groupSys;
+        if (orderStr != null) {
+          _sortOrder = orderStr == 'descending' ? NetworkSortOrder.descending : NetworkSortOrder.ascending;
+        }
+        _filteredNetworks = _filterNetworks(_networks, _searchQuery);
+      });
+    }
+  }
+
+  List<DockerNetwork> _sortNetworks(List<DockerNetwork> networks) {
+    final sorted = List<DockerNetwork>.from(networks);
+    sorted.sort((a, b) {
+      if (_groupBySystem) {
+        final aSys = ['bridge', 'host', 'none'].contains(a.name.toLowerCase());
+        final bSys = ['bridge', 'host', 'none'].contains(b.name.toLowerCase());
+        if (aSys && !bSys) return -1;
+        if (!aSys && bSys) return 1;
+      }
+
+      final cmp = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return _sortOrder == NetworkSortOrder.ascending ? cmp : -cmp;
+    });
+    return sorted;
+  }
+
   List<DockerNetwork> _filterNetworks(List<DockerNetwork> networks, String query) {
-    if (query.isEmpty) return networks;
-    
-    final lowercaseQuery = query.toLowerCase();
-    return networks.where((network) {
-      return network.name.toLowerCase().contains(lowercaseQuery) ||
-             network.driver.toLowerCase().contains(lowercaseQuery) ||
-             network.networkId.toLowerCase().contains(lowercaseQuery);
-    }).toList();
+    var filtered = networks;
+    if (query.isNotEmpty) {
+      final lowercaseQuery = query.toLowerCase();
+      filtered = networks.where((network) {
+        return network.name.toLowerCase().contains(lowercaseQuery) ||
+               network.driver.toLowerCase().contains(lowercaseQuery) ||
+               network.networkId.toLowerCase().contains(lowercaseQuery);
+      }).toList();
+    }
+    return _sortNetworks(filtered);
   }
 
   void _onSearchChanged(String query) {
@@ -125,6 +166,131 @@ class _NetworksScreenState extends State<NetworksScreen>
       _searchQuery = query;
       _filteredNetworks = _filterNetworks(_networks, query);
     });
+  }
+
+  Widget _buildSortButton() {
+    return Container(
+      margin: const EdgeInsets.only(right: 16),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: PopupMenuButton<String>(
+        icon: Icon(
+          Icons.sort,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        tooltip: 'Sort networks',
+        padding: const EdgeInsets.all(8),
+        constraints: const BoxConstraints(
+          minWidth: 40,
+          minHeight: 40,
+        ),
+        onSelected: (value) async {
+          final prefs = await SharedPreferences.getInstance();
+          setState(() {
+            switch (value) {
+              case 'name':
+                _sortField = NetworkSortField.name;
+                break;
+              case 'asc':
+                _sortOrder = NetworkSortOrder.ascending;
+                break;
+              case 'desc':
+                _sortOrder = NetworkSortOrder.descending;
+                break;
+              case 'toggle_system':
+                _groupBySystem = !_groupBySystem;
+                break;
+            }
+            _filteredNetworks = _filterNetworks(_networks, _searchQuery);
+          });
+          if (value == 'toggle_system') {
+            await prefs.setBool('networkGroupBySystem', _groupBySystem);
+          } else {
+            await prefs.setString(
+              'networkSortOrder',
+              _sortOrder == NetworkSortOrder.descending ? 'descending' : 'ascending',
+            );
+          }
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Sort by', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'name',
+            child: Row(
+              children: [
+                Icon(
+                  _sortField == NetworkSortField.name ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Name'),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Order', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'asc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == NetworkSortOrder.ascending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('A → Z (Ascending)'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'desc',
+            child: Row(
+              children: [
+                Icon(
+                  _sortOrder == NetworkSortOrder.descending ? Icons.check : null,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Z → A (Descending)'),
+              ],
+            ),
+          ),
+          const PopupMenuDivider(),
+          const PopupMenuItem<String>(
+            enabled: false,
+            child: Text('Grouping', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ),
+          PopupMenuItem<String>(
+            value: 'toggle_system',
+            child: Row(
+              children: [
+                Icon(
+                  _groupBySystem ? Icons.check_box : Icons.check_box_outline_blank,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                const Text('Group by System'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handleNetworkAction(DockerAction action, DockerNetwork network) async {
@@ -324,6 +490,7 @@ class _NetworksScreenState extends State<NetworksScreen>
           SearchBarWithSettings(
             hintText: 'common.search_networks_hint'.tr(),
             onSearchChanged: _onSearchChanged,
+            trailing: _buildSortButton(),
           ),
           Expanded(
             child: Center(
@@ -361,15 +528,19 @@ class _NetworksScreenState extends State<NetworksScreen>
         SearchBarWithSettings(
           hintText: 'common.search_networks_hint'.tr(),
           onSearchChanged: _onSearchChanged,
+          trailing: _buildSortButton(),
         ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _filteredNetworks.length,
-            itemBuilder: (context, index) {
-              final network = _filteredNetworks[index];
-              return _buildNetworkCard(network);
-            },
+          child: RefreshIndicator(
+            onRefresh: _loadNetworks,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _filteredNetworks.length,
+              itemBuilder: (context, index) {
+                final network = _filteredNetworks[index];
+                return _buildNetworkCard(network);
+              },
+            ),
           ),
         ),
       ],
